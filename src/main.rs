@@ -9,10 +9,9 @@ use std::io::Write;
 use rand::Rng;
 use rand::seq::SliceRandom;
 
-/*
+
 mod hashed_stack;
 use hashed_stack::HashedStack;
-*/
 
 #[derive(Debug)]
 struct Element<T>(T, usize);
@@ -64,7 +63,6 @@ fn get_histogram(trace: &Vec<String>, word_set: HashSet<&'static str>) -> HashMa
     let mut histogram: HashMap<usize, isize> = HashMap::new();
 
     let n = trace.len();
-    // let I = word_set.len();
     // Empty stack of tuples
     let mut stack = Vec::new();
     // Add all elements to stack
@@ -105,7 +103,6 @@ fn get_histogram(trace: &Vec<String>, word_set: HashSet<&'static str>) -> HashMa
 
 // Probability that A and B cooccur given A occurs in a
 // given window length calculated for every window length
-
 fn conditional_cooccurrence(trace: &Vec<String>, A: HashSet<&'static str>, B: HashSet<&'static str>)
     -> HashMap<usize, f64> {
 
@@ -154,13 +151,14 @@ fn count_cooccurrence(hist: HashMap<usize, isize>, trace_len: &usize) -> HashMap
 
 }
 
+// Counts of cooccurence for each window length to csv
 fn to_file(counts: &HashMap<usize, isize>, file_path: &str) -> File {
     let mut file = File::create(file_path).expect("No file created");
     let mut out: String = String::new();
 
     for i in 1..574819 {
         fmt::write(&mut out,
-                   format_args!("{} {}\n", i, counts[&i]))
+                   format_args!("{}, {}\n", i, counts[&i]))
             .expect("No file");
     }
 
@@ -168,8 +166,9 @@ fn to_file(counts: &HashMap<usize, isize>, file_path: &str) -> File {
     file
 }
 
-fn percent_to_file(counts: &HashMap<usize, isize>, trace_len: usize) -> File {
-    let mut file = File::create("shuffled_percents.csv").expect("No file created");
+// Given counts, outputs percentage of cooccurrence in all window lengths to csv
+fn percent_to_file(counts: &HashMap<usize, isize>, trace_len: usize, file_path: &str) -> File {
+    let mut file = File::create(file_path).expect("No file created");
     let mut out: String = String::new();
     fmt::write(&mut out, format_args!("Window Length,Co-occurrence\n"));
 
@@ -197,10 +196,9 @@ fn main() {
 
     let trace = split_string(&contents);
 
-    /*
+    // Permutation of book text to test cooccurrence of random order
     let mut shuffled_trace = trace.clone();
     shuffled_trace.shuffle(&mut rng);
-    // println!("{:#?}", &shuffled_trace);
 
     let trace_len = &trace.len();
 
@@ -208,29 +206,28 @@ fn main() {
         vec!["sherlock", "holmes", "watson"]
             .iter().cloned().collect();
 
-    let i1 = rng.gen_range(0,trace_len-1);
-    let i2 = rng.gen_range(0,trace_len-1);
-    let i3 = rng.gen_range(0,trace_len-1);
-
-    let str1 = &trace[i1];
-    let str2 = &trace[i2];
-    let str3 = &trace[i3];
-
+    // Testing cooccurrence vs. random set of words
+    // These were picked by random indexing as an early test
     let random_set:HashSet<&'static str> =
         vec!["confess", "about", "is"]
             .iter().cloned().collect();
 
     println!("{:#?}", random_set);
 
+    // Calculate histogram and cooccurence given the trace and set
     let hist = get_histogram(&shuffled_trace, word_set);
     let cooccurrence = count_cooccurrence(hist, trace_len);
-    // to_file(&cooccurrence);
-    percent_to_file(&cooccurrence, *trace_len);
-    */
 
-    let A:HashSet<&'static str> = vec!["confess"].iter().cloned().collect();
-    let B = vec!["confess", "sherlock"].iter().cloned().collect();
+    to_file(&cooccurrence, "cooc.txt");
+    percent_to_file(&cooccurrence, *trace_len, "percents.csv");
+
+    // Conditional probability of different sets
+    let A:HashSet<&'static str> = vec!["sherlock"].iter().cloned().collect();
+    let B = vec!["holmes", "sherlock"].iter().cloned().collect();
 
     conditional_cooccurrence(&trace,A, B);
+
+    let stack: hashed_stack::HashedStack<hashed_stack::Element<&str>, String> = HashedStack::new(word_set);
+    // println!("{}", stack);
 
 }

@@ -54,7 +54,3 @@ impl<T, K> HashedStack<T, K> {
 
     }
 }
-
-fn main() {
-
-}
