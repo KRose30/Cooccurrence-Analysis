@@ -8,10 +8,15 @@ use std::fs::File;
 use std::io::Write;
 use rand::Rng;
 use rand::seq::SliceRandom;
+use std::borrow::Borrow;
+use itertools::Itertools;
 
-
+/*
 mod hashed_stack;
 use hashed_stack::HashedStack;
+*/
+
+type Pair<'a> = (&'a str, &'a str);
 
 #[derive(Debug)]
 struct Element<T>(T, usize);
@@ -30,6 +35,11 @@ fn split_string(string: &str) -> Vec<String>{
 
     let text: Vec<String> = result.split(" ").map(|s| s.to_string()).collect();
     text.into_iter().filter(|i| i != "").collect::<Vec<String>>()
+}
+
+fn find_all_names(string: &str) -> HashSet<&str> {
+    let re = Regex::new(r"([A-Z][a-z]*)[\s-]([A-Z][a-z]*)").unwrap();
+    re.find_iter(string).map(|mat| mat.as_str()).collect()
 }
 
 // Histogram for one word
@@ -183,19 +193,89 @@ fn percent_to_file(counts: &HashMap<usize, isize>, trace_len: usize, file_path: 
     file
 }
 
+// Calculate conditional cooccurence for all pairs
+fn pair_cooccurrence(characters: &'static str, trace: &Vec<String>) {
+    let mut pairs: Vec<Pair> = get_pairs(characters);
+    let mut li: Vec<Element<Pair>> = Vec::new();
+
+    for pair in pairs {
+        let window_length = get_min_window_length(pair.0, pair.1 , trace);
+        println!("{:?} {}", pair, window_length);
+        li.push(Element(pair,window_length));
+    }
+    li.sort_by_key(|k| k.1);
+
+
+    let mut file = File::create("pair_rankings").expect("No file created");
+    let mut out: String = String::new();
+
+    for i in 0.. li.len() {
+        fmt::write(&mut out,
+                   format_args!("{:?}: {}\n", li[i].0, li[i].1))
+            .expect("No file");
+    }
+
+    file.write(out.as_ref()).expect("No file found");
+}
+
+fn get_min_window_length(first: &'static str, second: &'static str, trace: &Vec<String>) -> usize{
+    let mut a: HashSet<&'static str> = HashSet::new();
+    a.insert(first);
+    let mut b: HashSet<&'static str> = HashSet::new();
+    b.insert(second);
+
+    let trace_len = trace.len();
+    let joint: HashSet<&str> = a.union(&b).cloned().collect();
+
+    let histA = get_histogram(&trace, a);
+    let hist_joint = get_histogram(&trace, joint);
+
+    let coocA = count_cooccurrence(histA, &trace_len);
+    let cooc_joint = count_cooccurrence(hist_joint, &trace_len);
+
+    let mut min_length = usize::max_value();
+
+    for i in 1..trace.len() {
+        let prob = cooc_joint[&i] as f64 / coocA[&i] as f64;
+        if prob > 0.9 {
+            min_length = i;
+            break
+        }
+    }
+
+    min_length
+}
+
+// Given a list of items, returns all pairs
+fn get_pairs(characters: &'static str) -> Vec<Pair<'static>> {
+    let char_list: Vec<&'static str> = characters.split("\r\n").collect();
+    let mut pairs: Vec<Pair<'static>> = Vec::new();
+
+    for perm in char_list.into_iter().permutations(2) {
+        let curr: Pair = (&perm[0], &perm[1]);
+        pairs.push(curr);
+    }
+
+    pairs
+}
+
 
 fn main() {
     let filename = "text/cnus.txt";
+    let charfile = "text/characters";
 
     println!("In file {}", filename);
 
     let contents = fs::read_to_string(filename)
         .expect("Error reading file");
+    static characters: &'static str= include_str!("../text/characters");
 
     let mut rng = rand::thread_rng();
 
     let trace = split_string(&contents);
 
+    pair_cooccurrence(characters, &trace);
+    /*
     // Permutation of book text to test cooccurrence of random order
     let mut shuffled_trace = trace.clone();
     shuffled_trace.shuffle(&mut rng);
@@ -229,5 +309,5 @@ fn main() {
 
     let stack: hashed_stack::HashedStack<hashed_stack::Element<&str>, String> = HashedStack::new(word_set);
     // println!("{}", stack);
-
+    */
 }
