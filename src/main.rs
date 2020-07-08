@@ -10,6 +10,7 @@ use rand::Rng;
 use rand::seq::SliceRandom;
 use std::borrow::Borrow;
 use itertools::Itertools;
+use std::hash::Hash;
 
 /*
 mod hashed_stack;
@@ -18,8 +19,8 @@ use hashed_stack::HashedStack;
 
 type Pair<'a> = (&'a str, &'a str);
 
-#[derive(Debug)]
-struct Element<T>(T, usize);
+#[derive(PartialEq, Eq, Debug)]
+struct Element<T>( T, isize);
 
 impl fmt::Display for Element<&str> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -86,16 +87,16 @@ fn get_histogram(trace: &Vec<String>, word_set: HashSet<&'static str>) -> HashMa
 
         if word_set.contains(current) {
             if stack[0].0 == current {
-                *histogram.entry(i-stack[0].1)
+                *histogram.entry(i- stack[0].1 as usize)
                     .or_insert(0) += 1;
-                *histogram.entry(i-stack[1].1)
+                *histogram.entry(i- stack[1].1 as usize)
                     .or_insert(0) -= 1;
             }
 
             match stack.iter().position(|x| x.0 == current) {
                 Some(index) => {
                     let mut removed = stack.remove(index);
-                    removed.1 = i + 1;
+                    removed.1 = (i + 1) as isize;
                     stack.push(removed);
                 },
                 None => println!("No value present")
@@ -201,7 +202,7 @@ fn pair_cooccurrence(characters: &'static str, trace: &Vec<String>) {
     for pair in pairs {
         let window_length = get_min_window_length(pair.0, pair.1 , trace);
         println!("{:?} {}", pair, window_length);
-        li.push(Element(pair,window_length));
+        li.push(Element(pair, window_length as isize));
     }
     li.sort_by_key(|k| k.1);
 
@@ -259,55 +260,153 @@ fn get_pairs(characters: &'static str) -> Vec<Pair<'static>> {
     pairs
 }
 
+// Reads a csv and puts it into a vector of vector, where each index represents a given time
+fn read_csv() {
+
+}
+
+fn multiple_event_cooccurrence<T: Eq + Hash + Clone + std::fmt::Debug>
+    (I: HashSet<T>, trace: Vec<Vec<T>>, ) {
+    let trace_len = trace.len();
+
+    // Put csv into a vector which has time indices
+    // Calculate histogram for a given itemset
+    let hist = histogram_timestamped(I,trace);
+
+    // Count co-occurrence on the trace for every window length
+    let counts = count_cooccurrence(hist, &trace_len);
+    // Write co-occurrence to file
+}
+
+fn histogram_timestamped<T: Eq + Hash + Clone + std::fmt::Debug>
+    (word_set: HashSet<T>, trace: Vec<Vec<T>>) -> HashMap<usize, isize> {
+
+    let mut histogram: HashMap<usize, isize> = HashMap::new();
+
+    let n = trace.len();
+
+    // Each element of the stack is a set of events and a tesla
+    let mut stack:Vec<Element<HashSet<T>>> = Vec::new();
+
+    // Add all elements of I to stack
+    stack.push(Element(word_set.clone(),-1));
+
+    // Iterate through the trace
+    for t in 0..n {
+        println!("{} {:?}", t, stack);
+        // Let X be the set of events that occur at time = t
+        let curr_element = &trace[t];
+        let X:HashSet<T> =curr_element.iter().cloned().collect();
+
+        // We are interested in the intersection of I and X, called X'
+        let Xprime:HashSet<_> = X.intersection(&word_set).cloned().collect();
+
+        if !Xprime.is_empty() {
+            // Update if the intersection of bottom of stack with Xprime is non-empty
+            let bottom = &stack[0];
+            let Y = &bottom.0;
+
+            if !Xprime.intersection(Y).cloned().collect::<HashSet<T>>().is_empty() {
+                update_histogram(&stack, &Xprime, &Y, &word_set, &mut histogram, t);
+            }
+
+            move_set_to_top(&mut stack, Xprime, t)
+        }
+    }
+
+    // Update histogram for last gap which is an odd subset so plus one
+    *histogram.entry(trace.len() - stack[0].1 as usize - 1).or_insert(0) += 1;
+
+    println!("{:?}", &histogram);
+
+    histogram
+}
+
+fn move_set_to_top<T: Eq + Hash + Clone + std::fmt::Debug>
+    (stack: &mut Vec<Element<HashSet<T>>>, X: HashSet<T>, time: usize) {
+    // Remove all elements in Xprime from stack
+    let mut U = X.clone();
+    let mut to_remove: Vec<usize> = Vec::new();
+    for i in 0..stack.len() {
+        let element = &mut stack[i];
+        let C = &element.0;
+        let R: HashSet<_> = C.intersection(&X).cloned().collect();
+
+        if !R.is_empty() {
+            // Two cases
+            if &R == C {
+                // Must remove the entire element
+                to_remove.push(i)
+            }
+            else if R.is_subset(C) {
+                // Updates last seen time of certain events while leaving others
+                element.0 = C.difference(&R).cloned().collect();
+            }
+
+            U = U.difference(&R).cloned().collect();
+            if U.is_empty() {break}
+        }
+    }
+
+    for index in to_remove.into_iter().rev() {
+        stack.remove(index);
+    }
+
+    // Add new element on top
+    let new: Element<HashSet<_>> = Element(X, time as isize);
+    stack.push(new);
+}
+
+fn update_histogram<T: Eq + Hash + Clone + std::fmt::Debug>
+    (stack: &Vec<Element<HashSet<T>>>, Xprime: &HashSet<T>, Y: &HashSet<T>,
+     I: &HashSet<T>, hist: & mut HashMap<usize, isize>, time: usize) {
+
+    println!("X {:?} Y {:?}", Xprime, Y);
+    /*
+     If Y is a subset of Xprime we only need to update if the cardinality of Y is 1.
+     In a case where we do update we must update the gap for the next element in the stack which
+     was not seen in I
+     */
+
+    if !(Y.is_subset(Xprime) && Y.len() != 1) {
+        let k0 = (time as isize - stack[0].1 - 1) as usize; // Gap from bottom of the stack
+        *hist.entry(k0).or_insert(0) += 1;
+
+        for element in stack.iter() {
+            if !element.0.is_subset(Xprime) {
+                let kn = (time as isize - element.1 - 1) as usize;
+                *hist.entry(kn).or_insert(0) -= 1;
+                break;
+            }
+        }
+
+        println!("Histogram: {:?}", hist)
+
+    }
+
+}
 
 fn main() {
-    let filename = "text/cnus.txt";
-    let charfile = "text/characters";
 
-    println!("In file {}", filename);
-
-    let contents = fs::read_to_string(filename)
-        .expect("Error reading file");
-    static characters: &'static str= include_str!("../text/characters");
-
-    let mut rng = rand::thread_rng();
-
-    let trace = split_string(&contents);
-
-    pair_cooccurrence(characters, &trace);
     /*
-    // Permutation of book text to test cooccurrence of random order
-    let mut shuffled_trace = trace.clone();
-    shuffled_trace.shuffle(&mut rng);
+        Example stream
+        1, a,
+        2, x,
+        3, x,
+        4, b, x,
+        5, c, x,
+        6, x,
+        7, d, a
+        8, x,
+        10,
+        9, a, b,
+        10, c,
+        11, a,
+     */
 
-    let trace_len = &trace.len();
+    let ex_stream = vec![vec!['a'],vec!['x'],vec!['x'],vec!['b','x'],vec!['c','x'],vec!['x'],vec!['d','a'],vec!['x'],vec![],vec!['a','b'],vec!['c'],vec!['d']];
+    let filename = "traces/ex_stream_timestamped.csv";
+    let I = ['a','b'].iter().cloned().collect();
+    multiple_event_cooccurrence(I, ex_stream);
 
-    let word_set:HashSet<&'static str> =
-        vec!["sherlock", "holmes", "watson"]
-            .iter().cloned().collect();
-
-    // Testing cooccurrence vs. random set of words
-    // These were picked by random indexing as an early test
-    let random_set:HashSet<&'static str> =
-        vec!["confess", "about", "is"]
-            .iter().cloned().collect();
-
-    println!("{:#?}", random_set);
-
-    // Calculate histogram and cooccurence given the trace and set
-    let hist = get_histogram(&shuffled_trace, word_set);
-    let cooccurrence = count_cooccurrence(hist, trace_len);
-
-    to_file(&cooccurrence, "cooc.txt");
-    percent_to_file(&cooccurrence, *trace_len, "percents.csv");
-
-    // Conditional probability of different sets
-    let A:HashSet<&'static str> = vec!["sherlock"].iter().cloned().collect();
-    let B = vec!["holmes", "sherlock"].iter().cloned().collect();
-
-    conditional_cooccurrence(&trace,A, B);
-
-    let stack: hashed_stack::HashedStack<hashed_stack::Element<&str>, String> = HashedStack::new(word_set);
-    // println!("{}", stack);
-    */
 }
